@@ -20,10 +20,28 @@ const os = require('os');
 const app = express();
 const PORT = process.env.PORT || 4500;
 const UPLOAD_DIR = path.join(__dirname, 'uploads');
+const MESSAGES_FILE = path.join(__dirname, 'messages.json');
+const MAX_MESSAGES = 500; // שמירת ההודעות האחרונות בלבד
 
 // יצירת תיקיית האחסון אם אינה קיימת
 if (!fs.existsSync(UPLOAD_DIR)) {
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+}
+
+// טעינת הודעות הצ'אט מהדיסק (אם קיימות)
+let messages = [];
+try {
+  if (fs.existsSync(MESSAGES_FILE)) {
+    messages = JSON.parse(fs.readFileSync(MESSAGES_FILE, 'utf8'));
+  }
+} catch (e) {
+  messages = [];
+}
+
+function saveMessages() {
+  fs.writeFile(MESSAGES_FILE, JSON.stringify(messages), (err) => {
+    if (err) console.error('שגיאה בשמירת הצ\'אט:', err.message);
+  });
 }
 
 // אחסון קבצים — שמירה על השם המקורי, ומניעת דריסה ע"י הוספת מספר
@@ -47,7 +65,32 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
+app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// --- צ'אט מקומי ---
+
+// קבלת הודעות; אפשר ?since=<id> כדי לקבל רק חדשות
+app.get('/api/messages', (req, res) => {
+  const since = parseInt(req.query.since, 10);
+  if (!isNaN(since)) {
+    return res.json(messages.filter((m) => m.id > since));
+  }
+  res.json(messages);
+});
+
+// שליחת הודעה חדשה
+let lastId = messages.length ? messages[messages.length - 1].id : 0;
+app.post('/api/messages', (req, res) => {
+  const name = String(req.body.name || 'אנונימי').slice(0, 40).trim() || 'אנונימי';
+  const text = String(req.body.text || '').slice(0, 2000).trim();
+  if (!text) return res.status(400).json({ error: 'הודעה ריקה' });
+  const msg = { id: ++lastId, name, text, time: Date.now() };
+  messages.push(msg);
+  if (messages.length > MAX_MESSAGES) messages = messages.slice(-MAX_MESSAGES);
+  saveMessages();
+  res.json(msg);
+});
 
 // רשימת הקבצים הזמינים
 app.get('/api/files', (req, res) => {

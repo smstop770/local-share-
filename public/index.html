@@ -65,6 +65,26 @@
       opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 100;
     }
     .toast.show { opacity: 1; }
+
+    /* צ'אט */
+    .name-row { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+    .name-row label { font-size: 13px; color: #555; white-space: nowrap; }
+    .name-row input { flex: 1; padding: 8px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; }
+    .chat-box {
+      height: 300px; overflow-y: auto; background: #f7f9fc;
+      border-radius: 10px; padding: 12px; margin-bottom: 12px;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .msg { max-width: 75%; padding: 8px 12px; border-radius: 12px; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.08); align-self: flex-start; }
+    .msg.mine { align-self: flex-end; background: #d6e6ff; }
+    .msg .who { font-size: 12px; font-weight: 700; color: #2a5298; margin-bottom: 2px; }
+    .msg .txt { font-size: 14px; word-wrap: break-word; white-space: pre-wrap; }
+    .msg .when { font-size: 10px; color: #aaa; margin-top: 2px; text-align: left; }
+    .chat-input { display: flex; gap: 8px; }
+    .chat-input input { flex: 1; padding: 10px 14px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; }
+    .chat-input button { background: #2a5298; color: #fff; border: none; padding: 10px 18px; border-radius: 8px; cursor: pointer; font-weight: 600; }
+    .chat-input button:hover { background: #1e3c72; }
+    .chat-empty { text-align: center; color: #aaa; margin: auto; }
   </style>
 </head>
 <body>
@@ -90,6 +110,21 @@
         <button class="refresh-btn" onclick="loadFiles()">🔄 רענון</button>
       </h2>
       <ul class="file-list" id="fileList"></ul>
+    </div>
+
+    <div class="card">
+      <h2><span>💬 צ'אט מקומי</span></h2>
+      <div class="name-row">
+        <label for="nameInput">השם שלך:</label>
+        <input type="text" id="nameInput" placeholder="הכנס שם..." maxlength="40" />
+      </div>
+      <div class="chat-box" id="chatBox">
+        <div class="chat-empty">אין הודעות עדיין — כתוב את הראשונה!</div>
+      </div>
+      <div class="chat-input">
+        <input type="text" id="msgInput" placeholder="הקלד הודעה..." maxlength="2000" />
+        <button id="sendBtn">שלח</button>
+      </div>
     </div>
   </div>
 
@@ -203,6 +238,72 @@
 
     loadFiles();
     setInterval(loadFiles, 5000); // רענון אוטומטי כדי לראות קבצים שהעלו אחרים
+
+    // ---------- צ'אט ----------
+    const nameInput = document.getElementById('nameInput');
+    const msgInput = document.getElementById('msgInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const chatBox = document.getElementById('chatBox');
+    let lastMsgId = 0;
+    let firstLoad = true;
+
+    // שמירת השם ב-localStorage כדי שלא צריך להקליד כל פעם
+    nameInput.value = localStorage.getItem('chatName') || '';
+    nameInput.addEventListener('change', () => localStorage.setItem('chatName', nameInput.value.trim()));
+
+    function formatTime(ms) {
+      const d = new Date(ms);
+      return d.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function renderMessage(m) {
+      const empty = chatBox.querySelector('.chat-empty');
+      if (empty) empty.remove();
+      const mine = m.name === (nameInput.value.trim() || 'אנונימי');
+      const div = document.createElement('div');
+      div.className = 'msg' + (mine ? ' mine' : '');
+      div.innerHTML = `
+        <div class="who">${escapeHtml(m.name)}</div>
+        <div class="txt">${escapeHtml(m.text)}</div>
+        <div class="when">${formatTime(m.time)}</div>
+      `;
+      chatBox.appendChild(div);
+    }
+
+    async function loadMessages() {
+      try {
+        const res = await fetch('/api/messages?since=' + lastMsgId);
+        const msgs = await res.json();
+        if (msgs.length) {
+          const nearBottom = chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight < 80;
+          msgs.forEach(renderMessage);
+          lastMsgId = msgs[msgs.length - 1].id;
+          if (nearBottom || firstLoad) chatBox.scrollTop = chatBox.scrollHeight;
+          firstLoad = false;
+        }
+      } catch (e) { /* התעלמות משגיאות רשת זמניות */ }
+    }
+
+    async function sendMessage() {
+      const text = msgInput.value.trim();
+      if (!text) return;
+      const name = nameInput.value.trim() || 'אנונימי';
+      msgInput.value = '';
+      try {
+        await fetch('/api/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, text }),
+        });
+        loadMessages();
+      } catch (e) { showToast('שגיאה בשליחה'); msgInput.value = text; }
+    }
+
+    sendBtn.addEventListener('click', sendMessage);
+    msgInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendMessage(); });
+
+    loadMessages();
+    setInterval(loadMessages, 2000); // בדיקת הודעות חדשות כל 2 שניות
   </script>
 </body>
 </html>

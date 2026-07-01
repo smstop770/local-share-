@@ -4,6 +4,9 @@ node_modules/
 # Uploaded files (user content — should not be in the repo)
 uploads/
 
+# Chat history (user content)
+messages.json
+
 # Logs & OS files
 *.log
 npm-debug.log*
