@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>שיתוף קבצים ברשת</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+      min-height: 100vh;
+      color: #333;
+      padding: 20px;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    header { text-align: center; color: #fff; margin-bottom: 24px; }
+    header h1 { font-size: 32px; margin-bottom: 6px; }
+    header p { opacity: 0.9; font-size: 14px; }
+    .card {
+      background: #fff;
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 20px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    }
+    .dropzone {
+      border: 3px dashed #2a5298;
+      border-radius: 12px;
+      padding: 40px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      background: #f7f9fc;
+    }
+    .dropzone.dragover { background: #e3f0ff; border-color: #1e3c72; transform: scale(1.01); }
+    .dropzone .icon { font-size: 48px; margin-bottom: 12px; }
+    .dropzone p { color: #555; font-size: 16px; }
+    .dropzone small { color: #999; display: block; margin-top: 8px; }
+    #fileInput { display: none; }
+    .progress { height: 8px; background: #eee; border-radius: 4px; margin-top: 16px; overflow: hidden; display: none; }
+    .progress-bar { height: 100%; width: 0; background: #2a5298; transition: width 0.2s; }
+    h2 { font-size: 20px; margin-bottom: 16px; color: #1e3c72; display: flex; justify-content: space-between; align-items: center; }
+    .refresh-btn { font-size: 13px; background: #eef2f9; border: none; padding: 6px 12px; border-radius: 8px; cursor: pointer; color: #2a5298; }
+    .refresh-btn:hover { background: #dde6f5; }
+    .file-list { list-style: none; }
+    .file-item {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px; border-radius: 10px; transition: background 0.15s;
+    }
+    .file-item:hover { background: #f5f7fa; }
+    .file-icon { font-size: 24px; }
+    .file-info { flex: 1; min-width: 0; }
+    .file-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .file-meta { font-size: 12px; color: #999; }
+    .btn { border: none; padding: 8px 14px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600; }
+    .btn-download { background: #2a5298; color: #fff; text-decoration: none; }
+    .btn-download:hover { background: #1e3c72; }
+    .btn-delete { background: #ffe5e5; color: #d33; margin-right: 6px; }
+    .btn-delete:hover { background: #ffcccc; }
+    .empty { text-align: center; color: #aaa; padding: 30px; }
+    .toast {
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+      background: #333; color: #fff; padding: 12px 24px; border-radius: 8px;
+      opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 100;
+    }
+    .toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>📁 שיתוף קבצים ברשת</h1>
+      <p>העלה קבצים והורד אותם מכל מחשב באותה רשת</p>
+    </header>
+
+    <div class="card">
+      <div class="dropzone" id="dropzone">
+        <div class="icon">⬆️</div>
+        <p>גרור קבצים לכאן או לחץ לבחירה</p>
+        <small>ניתן להעלות כמה קבצים בבת אחת</small>
+      </div>
+      <input type="file" id="fileInput" multiple />
+      <div class="progress" id="progress"><div class="progress-bar" id="progressBar"></div></div>
+    </div>
+
+    <div class="card">
+      <h2>
+        <span>קבצים זמינים</span>
+        <button class="refresh-btn" onclick="loadFiles()">🔄 רענון</button>
+      </h2>
+      <ul class="file-list" id="fileList"></ul>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('fileInput');
+    const progress = document.getElementById('progress');
+    const progressBar = document.getElementById('progressBar');
+    const fileList = document.getElementById('fileList');
+    const toast = document.getElementById('toast');
+
+    function showToast(msg) {
+      toast.textContent = msg;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 2500);
+    }
+
+    function formatSize(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+      return (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+    }
+
+    function iconFor(name) {
+      const ext = name.split('.').pop().toLowerCase();
+      if (['jpg','jpeg','png','gif','webp','bmp','svg'].includes(ext)) return '🖼️';
+      if (['mp4','mov','avi','mkv','webm'].includes(ext)) return '🎬';
+      if (['mp3','wav','ogg','m4a','flac'].includes(ext)) return '🎵';
+      if (['zip','rar','7z','tar','gz'].includes(ext)) return '🗜️';
+      if (['pdf'].includes(ext)) return '📕';
+      if (['doc','docx','txt','rtf'].includes(ext)) return '📄';
+      if (['xls','xlsx','csv'].includes(ext)) return '📊';
+      return '📎';
+    }
+
+    async function loadFiles() {
+      const res = await fetch('/api/files');
+      const files = await res.json();
+      fileList.innerHTML = '';
+      if (!files.length) {
+        fileList.innerHTML = '<li class="empty">אין קבצים עדיין — העלה את הראשון!</li>';
+        return;
+      }
+      for (const f of files) {
+        const li = document.createElement('li');
+        li.className = 'file-item';
+        li.innerHTML = `
+          <span class="file-icon">${iconFor(f.name)}</span>
+          <div class="file-info">
+            <div class="file-name">${escapeHtml(f.name)}</div>
+            <div class="file-meta">${formatSize(f.size)}</div>
+          </div>
+          <a class="btn btn-download" href="/api/download/${encodeURIComponent(f.name)}">⬇️ הורדה</a>
+          <button class="btn btn-delete" onclick="deleteFile('${encodeURIComponent(f.name)}')">🗑️</button>
+        `;
+        fileList.appendChild(li);
+      }
+    }
+
+    function escapeHtml(s) {
+      return s.replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+    }
+
+    async function deleteFile(name) {
+      if (!confirm('למחוק את הקובץ?')) return;
+      const res = await fetch('/api/files/' + name, { method: 'DELETE' });
+      if (res.ok) { showToast('הקובץ נמחק'); loadFiles(); }
+      else showToast('שגיאה במחיקה');
+    }
+
+    function uploadFiles(files) {
+      if (!files.length) return;
+      const formData = new FormData();
+      for (const f of files) formData.append('files', f);
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/upload');
+      progress.style.display = 'block';
+      progressBar.style.width = '0%';
+
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          progressBar.style.width = (e.loaded / e.total * 100) + '%';
+        }
+      };
+      xhr.onload = () => {
+        progress.style.display = 'none';
+        if (xhr.status === 200) {
+          const r = JSON.parse(xhr.responseText);
+          showToast(`הועלו ${r.count} קבצים בהצלחה`);
+          loadFiles();
+        } else showToast('שגיאה בהעלאה');
+      };
+      xhr.onerror = () => { progress.style.display = 'none'; showToast('שגיאה בהעלאה'); };
+      xhr.send(formData);
+    }
+
+    dropzone.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', () => uploadFiles(fileInput.files));
+
+    ['dragenter', 'dragover'].forEach((ev) =>
+      dropzone.addEventListener(ev, (e) => { e.preventDefault(); dropzone.classList.add('dragover'); })
+    );
+    ['dragleave', 'drop'].forEach((ev) =>
+      dropzone.addEventListener(ev, (e) => { e.preventDefault(); dropzone.classList.remove('dragover'); })
+    );
+    dropzone.addEventListener('drop', (e) => uploadFiles(e.dataTransfer.files));
+
+    loadFiles();
+    setInterval(loadFiles, 5000); // רענון אוטומטי כדי לראות קבצים שהעלו אחרים
+  </script>
+</body>
+</html>
